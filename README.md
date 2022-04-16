@@ -123,48 +123,88 @@ class RestaurantDetailViewModel @AssistedInject constructor(
 ```
 
 아래는 Activity에서 @Inject를 통해 Factory를 선언 한 후 ViewModel을 선언할 때 레스토랑의 엔티티를 주입시켜줍니다.
-
-
- ```Kotlin
-@AndroidEntryPoint
-class RestaurantDetailActivity : BaseActivity<RestaurantDetailViewModel, ActivityRestaurantDetailBinding>() {
-
-    @Inject
-    lateinit var restaurantdetailViewModelFactory: RestaurantDetailViewModel.RestaurantDetailViewModelFactory
-
-    override val viewModel by viewModels<RestaurantDetailViewModel> {
-        RestaurantDetailViewModel.provideFactory(
-            restaurantdetailViewModelFactory,
-            intent.getParcelableExtra<RestaurantEntity>(RestaurantListFragment.RESTAURANT_KEY) as RestaurantEntity
-        )
-    }
-```
-
 ## 모듈
-Repository등 Singleton으로 선언해주고 싶은 객체들이 있습니다. 그럴때 Module을 선언후 @Provides를 통해 주입해 줍니다.
+아래 사진은 최소한의 모듈을 도식화 한 것 입니다. Retrofit과 Room을 연결시켜 Retrofit을 모듈로 연결 시킵니다.
+<p align = center>
+    <img src="https://user-images.githubusercontent.com/48902047/163676885-b555d316-d451-4ff6-bc9c-5878a00dd953.JPG"/>
+</p>
+
+### 1. APIMoudule
+
  ```Kotlin
 @Module
 @InstallIn(SingletonComponent::class)
-object FirebaseModule {
+object ApiModule {
+
+    @Provides
+    fun provideBaseUrl() = Constants.BASE_URL
+
+    @Singleton
+    @Provides
+    fun provideOkHttpClient() = if (BuildConfig.DEBUG) {
+        val loggingInterceptor = HttpLoggingInterceptor()
+        loggingInterceptor.setLevel(HttpLoggingInterceptor.Level.BODY)
+        OkHttpClient.Builder()
+            .addInterceptor(loggingInterceptor)
+            .build()
+    } else {
+        OkHttpClient.Builder().build()
+    }
+
+    @Singleton
+    @APIService
+    @Provides
+    fun provideRetrofit(okHttpClient: OkHttpClient): Retrofit {
+        return Retrofit.Builder()
+            .client(okHttpClient)
+            .baseUrl(provideBaseUrl())
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+    }
 
     @Provides
     @Singleton
-    fun provideFirebasefirestore() : FirebaseFirestore {
-        return Firebase.firestore
+    fun provideApiService(retrofit: Retrofit): ApiService {
+        return retrofit.create(ApiService::class.java)
+    }
+    
+    @Retention(AnnotationRetention.BINARY)
+    @Qualifier
+    annotation class APIService
+}
+    
+```
+
+### 2. DispatcherModule
+
+ ```Kotlin
+@Module
+@InstallIn(SingletonComponent::class)
+object DispatcherModule {
+    @Provides
+    @IoDispatcher
+    @Singleton
+    fun provideIODispatcher(): CoroutineDispatcher {
+        return Dispatchers.IO
     }
     @Provides
+    @MainDispatcher
     @Singleton
-    fun provideFirebaseStorage() : FirebaseStorage {
-        return FirebaseStorage.getInstance()
+    fun provideMainDispatcher(): CoroutineDispatcher {
+        return Dispatchers.Main
     }
-    @Provides
-    @Singleton
-    fun provideFirebaseAuth() : FirebaseAuth {
-        return FirebaseAuth.getInstance()
-    }
+
+    @Retention(AnnotationRetention.BINARY)
+    @Qualifier
+    annotation class IoDispatcher
+
+    @Retention(AnnotationRetention.BINARY)
+    @Qualifier
+    annotation class MainDispatcher
 }
 ```
-이 중 주의 해 줘야 할 것은 먼저 해당 주입받을 객체가 ApplicationContext 단위일 경우 입니다. 그럴경우 아래와 같이 @ApplicationContext 선언해 주면 됩니다.
+
+### 3. LocalDBModule
 
  ```Kotlin
 @Module
@@ -176,58 +216,33 @@ object LocalDBModule {
     @Provides
     fun provideAppPreferenceManager(@ApplicationContext context: Context) : AppPreferenceManager
             = AppPreferenceManager(context)
-    
-    ...
+
+    @Provides
+    @Singleton
+    fun providesDao(applicationDatabase: ApplicationDatabase): Dao = applicationDatabase.Dao()
+
+    @Provides
+    @Singleton
+    fun providesApplicationDatabase(@ApplicationContext context: Context): ApplicationDatabase
+            = Room.databaseBuilder(context, ApplicationDatabase::class.java,"Database").build()
+
 }
 ```
-다음은 사용이 같은 주입입니다. 예를 들어 같은 OkHttpClient 객체인 Map과 food를 받을 경우 아래와 같이 이름을 선언 후 주입하면 됩니다. 해당 맞는 객체에 어노테이션을 걸어주면 됩니다.
+### 4. RepositoryModule
 
  ```Kotlin
 @Module
 @InstallIn(SingletonComponent::class)
-class ProvideAPIModule {
-  
-    . . .
-    
-    /* 4. 기본 설정 및 data :
-    *  지도와 음식을 가져오는 통신
-    */
-    @Singleton
-    @Provides
-    @MapAPIService
-    fun provideMapRetrofit(
-        okHttpClient: OkHttpClient,
-        gsonConverterFactory: GsonConverterFactory,
-    ): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(Url.TMAP_URL)
-            .addConverterFactory(gsonConverterFactory)
-            .client(okHttpClient)
-            .build()
-    }
+object RepositoryModule {
 
     @Singleton
     @Provides
-    @FoodAPIService
-    fun provideFoodRetrofit(
-        okHttpClient: OkHttpClient,
-        gsonConverterFactory: GsonConverterFactory,
-    ): Retrofit {
-        return Retrofit.Builder()
-            .baseUrl(Url.FOOD_URL)
-            .addConverterFactory(gsonConverterFactory)
-            .client(okHttpClient)
-            .build()
-    }
+    fun provideRepository(
+        ApiService: ApiService,
+        dao: Dao,
+        @DispatcherModule.IoDispatcher ioDispatcher: CoroutineDispatcher
+    ): RestaurantRepository
+            = RepositoryImpl(ApiService,dao,ioDispatcher)
 
-    @Retention(AnnotationRetention.BINARY)
-    @Qualifier
-    annotation class MapAPIService
-
-    @Retention(AnnotationRetention.BINARY)
-    @Qualifier
-    annotation class FoodAPIService
 }
 ```
-
-
