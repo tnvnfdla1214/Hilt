@@ -124,7 +124,7 @@ class RestaurantDetailViewModel @AssistedInject constructor(
 
 아래는 Activity에서 @Inject를 통해 Factory를 선언 한 후 ViewModel을 선언할 때 레스토랑의 엔티티를 주입시켜줍니다.
 ## 모듈
-아래 사진은 최소한의 모듈을 도식화 한 것 입니다. Retrofit과 Room을 연결시켜 Retrofit을 모듈로 연결 시킵니다.
+아래 사진은 최소한의 모듈을 도식화 한 것 입니다. Retrofit과 Room을  Retrofit을 모듈로 연결 시킵니다.
 <p align = center>
     <img src="https://user-images.githubusercontent.com/48902047/163676885-b555d316-d451-4ff6-bc9c-5878a00dd953.JPG"/>
 </p>
